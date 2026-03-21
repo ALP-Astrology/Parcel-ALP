@@ -490,6 +490,11 @@
                             <option value="Under Review">Pending (Under Review)</option>
                             <option value="Checked">Graded (Checked/Completed)</option>
                         </select>
+                        <select id="eval-sort-marks" class="px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 outline-none text-sm bg-white shrink-0">
+                            <option value="">Sort: Newest First</option>
+                            <option value="high-to-low">Marks: High to Low</option>
+                            <option value="low-to-high">Marks: Low to High</option>
+                        </select>
                     </div>
 
                     <!-- Evaluations Table -->
@@ -1041,9 +1046,11 @@
             updateEvaluatorSuggestions();
 
             // Refresh the screen automatically once data is fully loaded
-            if (!document.getElementById('view-dashboard').classList.contains('hidden')) updateDashboard();
-            if (!document.getElementById('view-records').classList.contains('hidden')) renderTable();
-            if (!document.getElementById('view-evaluations').classList.contains('hidden')) renderEvaluationsTable();
+            if (currentUser) {
+                if (!document.getElementById('view-dashboard').classList.contains('hidden')) updateDashboard();
+                if (!document.getElementById('view-records').classList.contains('hidden')) renderTable();
+                if (!document.getElementById('view-evaluations').classList.contains('hidden')) renderEvaluationsTable();
+            }
         }
 
         // --- AUTHENTICATION ---
@@ -1136,10 +1143,11 @@
         let doughnutChartInstance = null;
 
         function updateDashboard() {
+            if (!currentUser) return;
             const todayStr = new Date().toISOString().split('T')[0];
             
             // Restrict dashboard data for Staff to only show today's entries
-            const displayParcels = currentUser.role === 'staff' ? parcels.filter(p => p.timestamp.startsWith(todayStr)) : parcels;
+            const displayParcels = (currentUser && currentUser.role === 'staff') ? parcels.filter(p => p.timestamp.startsWith(todayStr)) : parcels;
 
             document.getElementById('stat-total').innerText = displayParcels.length;
             
@@ -1297,6 +1305,7 @@
             document.getElementById('eval-filter-teacher').addEventListener('change', renderEvaluationsTable);
             document.getElementById('eval-filter-result').addEventListener('change', renderEvaluationsTable);
             document.getElementById('eval-filter-status').addEventListener('change', renderEvaluationsTable);
+            document.getElementById('eval-sort-marks').addEventListener('change', renderEvaluationsTable);
         }
 
         function clearDateFilters() {
@@ -1307,6 +1316,7 @@
         }
 
         function renderTable() {
+            if (!currentUser) return;
             const search = document.getElementById('search-input').value.toLowerCase();
             const classFilter = document.getElementById('filter-class').value;
             const typeFilter = document.getElementById('filter-type').value;
@@ -1319,7 +1329,7 @@
             // Apply Filters
             filteredParcels = parcels.filter(p => {
                 // STAFF ROLE RESTRICTION: Only show today's records
-                if (currentUser.role === 'staff') {
+                if (currentUser && currentUser.role === 'staff') {
                     const pDate = (p.timestamp || '').split('T')[0];
                     if (pDate !== todayStr) return false;
                 }
@@ -1353,7 +1363,7 @@
             let paginated = [];
             const paginationControls = document.getElementById('pagination-controls');
 
-            if (currentUser.role === 'admin') {
+            if (currentUser && currentUser.role === 'admin') {
                 // ADMIN ROLE: Show all records in a single scroll list
                 paginated = filteredParcels;
                 if (paginationControls) paginationControls.style.display = 'none'; // Hide Next/Prev buttons
@@ -1442,7 +1452,7 @@
                         <button onclick="viewDetails('${p.id}')" class="p-1.5 text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View Details"><i data-lucide="eye" class="w-4 h-4"></i></button>
                         <button onclick="openAssignModal('${p.id}')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors ml-1" title="Assign Evaluator"><i data-lucide="user-plus" class="w-4 h-4"></i></button>
                         <button onclick="openEditModal('${p.id}')" class="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors ml-1" title="Edit Record"><i data-lucide="edit" class="w-4 h-4"></i></button>
-                        ${currentUser.role === 'admin' ? `<button onclick="openDeleteModal('${p.id}')" class="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-1" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                        ${(currentUser && currentUser.role === 'admin') ? `<button onclick="openDeleteModal('${p.id}')" class="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-1" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1456,6 +1466,7 @@
             document.getElementById('eval-filter-teacher').value = teacherName;
             document.getElementById('eval-filter-status').value = ''; // Reset status to show all
             document.getElementById('eval-filter-result').value = ''; // Reset result filter
+            document.getElementById('eval-sort-marks').value = ''; // Reset sorting
             navigate('evaluations');
             showToast(`Showing parcels for ${teacherName}`, 'info');
         }
@@ -1468,17 +1479,19 @@
         }
 
         function renderEvaluationsTable() {
+            if (!currentUser) return;
             const search = document.getElementById('eval-search-input').value.toLowerCase();
             const statusFilter = document.getElementById('eval-filter-status').value;
             const teacherFilter = document.getElementById('eval-filter-teacher').value;
             const resultFilter = document.getElementById('eval-filter-result').value;
+            const sortOrder = document.getElementById('eval-sort-marks').value;
             const todayStr = new Date().toISOString().split('T')[0];
 
             // Only show parcels that have been assigned to a teacher
             let evalParcels = parcels.filter(p => p.evaluatorName && String(p.evaluatorName).trim() !== '');
 
             // STAFF ROLE RESTRICTION: Only show today's assigned records
-            if (currentUser.role === 'staff') {
+            if (currentUser && currentUser.role === 'staff') {
                 evalParcels = evalParcels.filter(p => {
                     const pDate = (p.timestamp || '').split('T')[0];
                     return pDate === todayStr;
@@ -1511,6 +1524,27 @@
 
                 return matchSearch && matchTeacher && matchStatus && matchResult;
             });
+
+            // Sorting Logic
+            if (sortOrder === 'high-to-low') {
+                evalParcels.sort((a, b) => {
+                    const markA = getNumericMark(a.marks);
+                    const markB = getNumericMark(b.marks);
+                    if (markA === null && markB === null) return 0;
+                    if (markA === null) return 1; // Put ungraded at bottom
+                    if (markB === null) return -1;
+                    return markB - markA;
+                });
+            } else if (sortOrder === 'low-to-high') {
+                evalParcels.sort((a, b) => {
+                    const markA = getNumericMark(a.marks);
+                    const markB = getNumericMark(b.marks);
+                    if (markA === null && markB === null) return 0;
+                    if (markA === null) return 1; // Put ungraded at bottom
+                    if (markB === null) return -1;
+                    return markA - markB;
+                });
+            }
 
             const tbody = document.getElementById('eval-table-body');
             tbody.innerHTML = '';
@@ -1980,7 +2014,7 @@
                             status: String(stat),
                             notes: String(row['Notes'] || 'Imported via bulk upload'),
                             timestamp: isoTimestamp,
-                            staffName: currentUser.name, // Credit the uploader
+                            staffName: currentUser ? currentUser.name : "Admin", // Credit the uploader
                             evaluatorId: '',
                             evaluatorName: '',
                             evaluatorPhone: '',
